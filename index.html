@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Dashboard Indeks Risiko Sanitasi (IRS) per Desa</title>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<script async src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
 :root{--bg:#EDF2F5;--panel:#FFFFFF;--ink:#12343B;--mute:#5B7279;--line:#D3DEE3;--map:#F6F9FA;--hull:#E3ECF0;
 --c0:#2E8B6E;--c1:#E3B23C;--c2:#E07A2F;--c3:#B3261E;--accent:#0F6E7A;
@@ -81,7 +82,7 @@ tr.row{cursor:pointer}tr.row:hover td,tr.row.sel td{background:var(--hull)}
  <div class="maprow">
   <div class="panel">
    <div class="maphead"><h2 style="margin:0" id="mt">Peta sebaran</h2>
-    <div class="g"><button id="vg" type="button" class="on">Peta kotak</button><button id="vm" type="button" disabled title="Muat file GeoJSON dulu">Peta geografis</button><button id="ld" type="button">Muat GeoJSON desa</button><input id="fi" type="file" accept=".geojson,.json,application/geo+json,application/json" hidden></div></div>
+    <div class="g"><button id="vg" type="button" class="on">Peta kotak</button><button id="vm" type="button" disabled title="Muat file GeoJSON dulu">Peta geografis</button><button id="ld" type="button">Muat GeoJSON desa</button><button id="dm" type="button" hidden>Unduh peta (SVG)</button><input id="fi" type="file" accept=".geojson,.json,application/geo+json,application/json" hidden></div></div>
    <svg id="map" viewBox="0 0 640 430" role="img" aria-label="Peta desa berwarna menurut kategori risiko"></svg>
    <div class="legend" id="legend"></div>
    <div class="note" id="mnote"></div>
@@ -89,7 +90,7 @@ tr.row{cursor:pointer}tr.row:hover td,tr.row.sel td{background:var(--hull)}
   <div class="panel" id="detail"></div>
  </div>
  <div class="panel"><h2>Sebaran kategori per kecamatan (persen dari seluruh desa di kecamatan)</h2><div id="bars"></div></div>
- <div class="panel"><h2>Daftar desa</h2><div class="tw"><table><thead id="th"></thead><tbody id="tb"></tbody></table></div></div>
+ <div class="panel"><div class="maphead"><h2 style="margin:0">Daftar desa</h2><div class="g"><button id="dx" type="button" hidden>Unduh Excel (.xlsx)</button><button id="dc" type="button" hidden>Unduh CSV</button></div></div><div class="note" id="dmsg" aria-live="polite" style="margin:0 0 8px"></div><div class="tw"><table><thead id="th"></thead><tbody id="tb"></tbody></table></div></div>
 </div>
 </main>
 <script>
@@ -157,9 +158,10 @@ function drawBars(){var h='';
  $('bars').innerHTML=h+'<div class="legend">'+CATS.map(function(c){return '<span><i style="background:'+c.c+'"></i>'+c.k+'</span>'}).join('')+'</div>'}
 var COLS=[['nama','Desa',0],['kec','Kecamatan',0],['v','Nilai',1],['k','Kategori',0],['v1','Sumber air',1],['v2','Air limbah',1],['v3','Sampah',1],['v4','Genangan',1],['v5','STBM',1]];
 function gv(d,k){return k==='nama'?d.nama:k==='kec'?KEC[d.kec]:k==='v'?d.v[st.m]:k==='k'?d.c[st.m]*1000+d.v[st.m]:d.v[+k[1]]}
+function rowsNow(){var rows=D.filter(vis);rows.sort(function(a,b){var x=gv(a,st.sort),y=gv(b,st.sort);return (typeof x==='string'?x.localeCompare(y):x-y)*st.dir});return rows}
 function drawTable(){
  $('th').innerHTML='<tr>'+COLS.map(function(c){var l=c[0]==='v'?MET[st.m]:c[1];return '<th class="'+(c[2]?'num':'')+'" data-s="'+c[0]+'">'+l+(st.sort===c[0]?(st.dir>0?' ▲':' ▼'):'')+'</th>'}).join('')+'</tr>';
- var rows=D.filter(vis);rows.sort(function(a,b){var x=gv(a,st.sort),y=gv(b,st.sort);return (typeof x==='string'?x.localeCompare(y):x-y)*st.dir});
+ var rows=rowsNow();
  $('tb').innerHTML=rows.length?rows.map(function(d){return '<tr class="row'+(st.sel===d.id?' sel':'')+'" data-id="'+d.id+'"><td>'+d.nama+'</td><td>'+KEC[d.kec]+'</td><td class="num"><b>'+fmt(d.v[st.m])+'</b></td><td>'+badge(d.c[st.m])+'</td>'+[1,2,3,4,5].map(function(i){return '<td class="num">'+fmt(d.v[i])+'</td>'}).join('')+'</tr>'}).join(''):'<tr><td colspan="9" class="empty">Tidak ada desa yang cocok. Longgarkan filter atau klik Atur ulang filter.</td></tr>'}
 function drawKpi(){var r=D.filter(vis),n=r.length,hi=r.filter(function(d){return d.c[st.m]>=2}).length;
  $('k1').textContent=n+' dari '+D.length;$('k2').textContent=n?(r.reduce(function(a,d){return a+d.v[st.m]},0)/n).toFixed(1):'-';
@@ -182,6 +184,30 @@ $('map').addEventListener('click',pick);
 $('map').addEventListener('keydown',function(e){if(e.key==='Enter')pick(e)});
 $('tb').addEventListener('click',function(e){var tr=e.target.closest('tr.row');if(tr){st.sel=+tr.dataset.id;all()}});
 $('th').addEventListener('click',function(e){var s=e.target.closest('th');if(!s)return;s=s.getAttribute('data-s');st.dir=st.sort===s?-st.dir:(s==='nama'||s==='kec'?1:-1);st.sort=s;drawTable()});
+// ---- unduh (butuh izin unduhan dari penampil halaman) ----
+var DL=null,LIGHT={'--c0':'#2E8B6E','--c1':'#E3B23C','--c2':'#E07A2F','--c3':'#B3261E','--mute':'#5B7279','--hull':'#E3ECF0','--line':'#D3DEE3','--panel':'#FFFFFF','--ink':'#12343B','--map':'#F6F9FA'};
+function note(t){$('dmsg').textContent=t}
+function slug(){return st.kec<0?'semua-kecamatan':KEC[st.kec].toLowerCase().replace(/\s+/g,'-')}
+function save(name,data){note('');DL.save({filename:name,data:data}).then(function(){note('File disimpan: '+name)}).catch(function(e){note(e&&e.code==='declined'?'Unduhan dibatalkan.':'Unduhan gagal'+(e&&e.code?' ('+e.code+')':'')+'.')})}
+function tableData(){var h=['Kode Desa','Nama Desa','Kecamatan','Nilai IRS','Kategori IRS'],i;
+ for(i=1;i<6;i++){h.push(MET[i]+' (nilai)');h.push(MET[i]+' (kategori)')}
+ var r=rowsNow().map(function(d){var x=[d.kode,d.nama,KEC[d.kec],d.v[0],CATS[d.c[0]].k];for(var j=1;j<6;j++){x.push(d.v[j]);x.push(CATS[d.c[j]].k)}return x});return {h:h,r:r}}
+function csvEsc(x){x=String(x);return /[",\n;]/.test(x)?'"'+x.replace(/"/g,'""')+'"':x}
+function emptyWarn(t){if(!t.r.length){note('Tidak ada desa untuk diunduh. Longgarkan filter dulu.');return true}return false}
+$('dc').addEventListener('click',function(){var t=tableData();if(emptyWarn(t))return;
+ save('IRS_per_Desa_'+slug()+'.csv','\ufeff'+[t.h].concat(t.r).map(function(r){return r.map(csvEsc).join(',')}).join('\r\n'))});
+$('dx').addEventListener('click',function(){var t=tableData();if(emptyWarn(t))return;
+ if(typeof XLSX==='undefined'){note('Pustaka Excel belum termuat. Gunakan Unduh CSV atau coba lagi.');return}
+ var w=XLSX.utils.aoa_to_sheet([t.h].concat(t.r));w['!cols']=t.h.map(function(_,i){return {wch:i===1?24:i===2?16:i<3?12:20}});
+ var f=XLSX.utils.aoa_to_sheet([['Ukuran',MET[st.m]],['Kecamatan',st.kec<0?'Semua':KEC[st.kec]],['Kategori dipilih',CATS.filter(function(_,i){return st.cats[i]}).map(function(c){return c.k}).join(', ')],['Pencarian',st.q||'-'],['Jumlah desa',t.r.length],['Sumber','Data_IRS_per_Desa.xlsx']]);
+ f['!cols']=[{wch:18},{wch:60}];
+ var wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,w,'Data IRS');XLSX.utils.book_append_sheet(wb,f,'Filter');
+ save('IRS_per_Desa_'+slug()+'.xlsx',new Uint8Array(XLSX.write(wb,{bookType:'xlsx',type:'array'})))});
+$('dm').addEventListener('click',function(){var vb=($('map').getAttribute('viewBox')||'0 0 640 330').split(' ').map(Number),w=vb[2],h=vb[3];
+ function R(x){return x.replace(/var\((--[a-z0-9-]+)\)/g,function(_,n){return LIGHT[n]||'#888'})}
+ var leg=CATS.map(function(c,i){return '<rect x="'+(8+i*150)+'" y="'+(h+30)+'" width="10" height="10" fill="'+R(c.c)+'"/><text x="'+(24+i*150)+'" y="'+(h+39)+'" font-size="11" fill="#333">'+c.k+'</text>'}).join('');
+ save('Peta_IRS_'+slug()+'.svg','<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 '+w+' '+(h+50)+'" width="'+(w*2)+'" font-family="Arial,sans-serif"><style>.pt{stroke:#fff;stroke-width:1}.sel{stroke:#12343B;stroke-width:2.5}</style><rect width="100%" height="100%" fill="#fff"/>'+R($('map').innerHTML)+'<text x="8" y="'+(h+16)+'" font-size="13" font-weight="600" fill="#12343B">Indeks Risiko Sanitasi - '+MET[st.m]+(st.kec<0?'':' - Kec. '+KEC[st.kec])+'</text>'+leg+'</svg>')});
+if(typeof claude!=='undefined'&&claude&&claude.use){claude.use('downloads').then(function(d){if(d){DL=d;['dm','dx','dc'].forEach(function(i){$(i).hidden=false})}}).catch(function(){})}
 all();
 })();
 </script>
